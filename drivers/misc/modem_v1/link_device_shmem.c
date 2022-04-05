@@ -2260,8 +2260,16 @@ static int shmem_security_request(struct link_device *ld, struct io_device *iod,
 		goto exit;
 	}
 
-	param2 = shm_get_security_param2(msr.mode, msr.size_boot);
-	param3 = shm_get_security_param3(msr.mode, msr.size_main);
+	err = shm_get_security_param2(msr.mode, msr.size_boot, &param2);
+	if (err) {
+		mif_err("%s: ERR! parameter2 is invalid\n", ld->name);
+		goto exit;
+	}
+	err = shm_get_security_param3(msr.mode, msr.size_main, &param3);
+	if (err) {
+		mif_err("%s: ERR! parameter3 is invalid\n", ld->name);
+		goto exit;
+	}
 
 #if !defined(CONFIG_CP_SECURE_BOOT)
 	if (msr.mode == 0)
@@ -3253,6 +3261,7 @@ static ssize_t rb_info_store(struct device *dev,
 	return ret;
 }
 
+#if defined(CONFIG_CP_ZEROCOPY)
 static ssize_t zmc_count_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -3284,6 +3293,9 @@ static ssize_t zmc_count_store(struct device *dev,
 static ssize_t mif_buff_mng_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
+	if (!g_mif_buff_mng)
+		return 0;
+
 	return sprintf(buf, "used(%d)/free(%d)/total(%d)\n",
 			g_mif_buff_mng->used_cell_count, g_mif_buff_mng->free_cell_count,
 			g_mif_buff_mng->cell_count);
@@ -3314,19 +3326,24 @@ static ssize_t force_use_memcpy_store(struct device *dev,
 		modem->mld->force_use_memcpy = 1;
 	return count;
 }
+#endif
 
 static DEVICE_ATTR_RW(tx_period_ms);
 static DEVICE_ATTR_RW(rb_info);
+#if defined(CONFIG_CP_ZEROCOPY)
 static DEVICE_ATTR_RO(mif_buff_mng);
 static DEVICE_ATTR_RW(zmc_count);
 static DEVICE_ATTR_RW(force_use_memcpy);
+#endif
 
 static struct attribute *shmem_attrs[] = {
 	&dev_attr_tx_period_ms.attr,
 	&dev_attr_rb_info.attr,
+#if defined(CONFIG_CP_ZEROCOPY)
 	&dev_attr_mif_buff_mng.attr,
 	&dev_attr_zmc_count.attr,
 	&dev_attr_force_use_memcpy.attr,
+#endif
 	NULL,
 };
 
