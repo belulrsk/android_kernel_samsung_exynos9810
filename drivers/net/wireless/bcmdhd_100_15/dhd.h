@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2019, Broadcom.
+ * Copyright (C) 1999-2020, Broadcom.
  *
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -27,7 +27,7 @@
  *
  * <<Broadcom-WL-IPTag/Open:>>
  *
- * $Id: dhd.h 851174 2019-11-18 12:13:55Z $
+ * $Id: dhd.h 871395 2020-04-01 06:47:36Z $
  */
 
 /****************
@@ -512,6 +512,9 @@ enum dhd_hang_reason {
 	HANG_REASON_BSS_UP_FAILURE			= 0x8010,
 	HANG_REASON_BSS_DOWN_FAILURE			= 0x8011,
 	HANG_REASON_IOCTL_SUSPEND_ERROR			= 0x8012,
+	HANG_REASON_ESCAN_SYNCID_MISMATCH		= 0x8013,
+	HANG_REASON_SCAN_TIMEOUT			= 0x8014,
+	HANG_REASON_SCAN_TIMEOUT_SCHED_ERROR		= 0x8015,
 	HANG_REASON_PCIE_LINK_DOWN_RC_DETECT		= 0x8805,
 	HANG_REASON_INVALID_EVENT_OR_DATA		= 0x8806,
 	HANG_REASON_UNKNOWN				= 0x8807,
@@ -890,7 +893,12 @@ typedef enum dhd_induce_error_states
 	DHD_INDUCE_LIVELOCK		= 0x3,
 	DHD_INDUCE_DROP_OOB_IRQ		= 0x4,
 	DHD_INDUCE_DROP_AXI_SIG		= 0x5,
-	DHD_INDUCE_IOCTL_SUSPEND_ERROR	= 0x6,
+	DHD_INDUCE_TX_BIG_PKT           = 0x6,
+	DHD_INDUCE_IOCTL_SUSPEND_ERROR	= 0x7,
+	DHD_INDUCE_SCAN_TIMEOUT         = 0x8,
+	DHD_INDUCE_SCAN_TIMEOUT_SCHED_ERROR     = 0x9,
+	DHD_INDUCE_PKTID_INVALID_SAVE   = 0xA,
+	DHD_INDUCE_PKTID_INVALID_FREE   = 0xB,
 	DHD_INDUCE_ERROR_MAX
 } dhd_induce_error_states_t;
 
@@ -1179,7 +1187,7 @@ typedef struct dhd_pub {
 	void    *flowid_lock;       /* per os lock for flowid info protection */
 	void    *flowring_list_lock;       /* per os lock for flowring list protection */
 	uint8	max_multi_client_flow_rings;
-	uint8	multi_client_flow_rings;
+	osl_atomic_t multi_client_flow_rings;
 	uint32  num_flow_rings;
 	cumm_ctr_t cumm_ctr;        /* cumm queue length placeholder  */
 	cumm_ctr_t l2cumm_ctr;      /* level 2 cumm queue length placeholder */
@@ -1578,6 +1586,8 @@ extern void dhd_pm_wake_lock_timeout(dhd_pub_t *pub, int val);
 extern void dhd_pm_wake_unlock(dhd_pub_t *pub);
 extern void dhd_txfl_wake_lock_timeout(dhd_pub_t *pub, int val);
 extern void dhd_txfl_wake_unlock(dhd_pub_t *pub);
+extern void dhd_nan_wake_lock_timeout(dhd_pub_t *pub, int val);
+extern void dhd_nan_wake_unlock(dhd_pub_t *pub);
 extern int dhd_os_wake_lock_timeout(dhd_pub_t *pub);
 extern int dhd_os_wake_lock_rx_timeout_enable(dhd_pub_t *pub, int val);
 extern int dhd_os_wake_lock_ctrl_timeout_enable(dhd_pub_t *pub, int val);
@@ -1651,6 +1661,16 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 		printf("call pm_wake unlock\n"); \
 		dhd_txfl_wake_unlock(pub); \
 	} while (0)
+#define DHD_NAN_WAKE_LOCK_TIMEOUT(pub, val) \
+	do { \
+		printf("call pm_wake_timeout enable\n"); \
+		dhd_nan_wake_lock_timeout(pub, val); \
+	} while (0)
+#define DHD_NAN_WAKE_UNLOCK(pub) \
+	do { \
+		printf("call pm_wake unlock\n"); \
+		dhd_nan_wake_unlock(pub); \
+	} while (0)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub) \
 	do { \
 		printf("call wake_lock_timeout: %s %d\n", \
@@ -1708,6 +1728,8 @@ inline static void MUTEX_UNLOCK_SOFTAP_SET(dhd_pub_t * dhdp)
 #define DHD_PM_WAKE_UNLOCK(pub) 			dhd_pm_wake_unlock(pub)
 #define DHD_TXFL_WAKE_LOCK_TIMEOUT(pub, val)	dhd_txfl_wake_lock_timeout(pub, val)
 #define DHD_TXFL_WAKE_UNLOCK(pub) 			dhd_txfl_wake_unlock(pub)
+#define DHD_NAN_WAKE_LOCK_TIMEOUT(pub, val)	dhd_nan_wake_lock_timeout(pub, val)
+#define DHD_NAN_WAKE_UNLOCK(pub)		dhd_nan_wake_unlock(pub)
 #define DHD_OS_WAKE_LOCK_TIMEOUT(pub)		dhd_os_wake_lock_timeout(pub)
 #define DHD_OS_WAKE_LOCK_RX_TIMEOUT_ENABLE(pub, val) \
 	dhd_os_wake_lock_rx_timeout_enable(pub, val)
@@ -2073,11 +2095,13 @@ void dhd_schedule_cto_recovery(dhd_pub_t *dhdp);
 #define DHD_IP4BCAST_DROP_FILTER_NUM	7
 #define DHD_LLC_STP_DROP_FILTER_NUM	8
 #define DHD_LLC_XID_DROP_FILTER_NUM	9
+#define DHD_UDPNETBIOS_DROP_FILTER_NUM	10
 #define DISCARD_IPV4_MCAST	"102 1 6 IP4_H:16 0xf0 0xe0"
 #define DISCARD_IPV6_MCAST	"103 1 6 IP6_H:24 0xff 0xff"
 #define DISCARD_IPV4_BCAST	"107 1 6 IP4_H:16 0xffffffff 0xffffffff"
 #define DISCARD_LLC_STP		"108 1 6 ETH_H:14 0xFFFFFFFFFFFF 0xAAAA0300000C"
 #define DISCARD_LLC_XID		"109 1 6 ETH_H:14 0xFFFFFF 0x0001AF"
+#define DISCARD_UDPNETBIOS	"110 1 6 UDP_H:2 0xffff 0x0089"
 extern int dhd_os_enable_packet_filter(dhd_pub_t *dhdp, int val);
 extern void dhd_enable_packet_filter(int value, dhd_pub_t *dhd);
 extern int dhd_packet_filter_add_remove(dhd_pub_t *dhdp, int add_remove, int num);
@@ -2637,6 +2661,7 @@ static INLINE int dhd_check_module_mac(dhd_pub_t *dhdp) { return 0; }
 int dhd_read_cis(dhd_pub_t *dhdp);
 void dhd_clear_cis(dhd_pub_t *dhdp);
 #if defined(SUPPORT_MULTIPLE_MODULE_CIS) && defined(USE_CID_CHECK)
+bool dhd_check_module(char *module_name);
 extern int dhd_check_module_b85a(void);
 extern int dhd_check_module_b90(void);
 #define BCM4359_MODULE_TYPE_B90B 1
@@ -3217,7 +3242,9 @@ int dhd_print_rtt_data(void *dev, dhd_pub_t *dhdp, const void *user_buf,
 	void *fp, uint32 len, void *pos);
 int dhd_get_debug_dump_file_name(void *dev, dhd_pub_t *dhdp,
 	char *dump_path, int size);
+#if defined(BCMPCIE)
 uint32 dhd_get_ext_trap_len(void *ndev, dhd_pub_t *dhdp);
+#endif /* BCMPCIE */
 uint32 dhd_get_time_str_len(void);
 uint32 dhd_get_health_chk_len(void *ndev, dhd_pub_t *dhdp);
 uint32 dhd_get_dhd_dump_len(void *ndev, dhd_pub_t *dhdp);
